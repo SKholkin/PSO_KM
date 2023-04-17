@@ -1,5 +1,8 @@
 
 import numpy as np
+import pandas as pd
+from scipy.spatial import distance_matrix
+
 
 class PowerKM:
     def __init__(self, init_centers, s_0=-5) -> None:
@@ -13,10 +16,12 @@ class PowerKM:
     def calculate_weights(self, data, s):
         k = self.n_comp
         weights = np.zeros([data.shape[0], self.n_comp])
-        for i, x_i in enumerate(data):
-            euclidean_norms = [np.linalg.norm(x_i - self.mu[j])  for j in range(self.n_comp)]
-            denom = 1 / k * np.power(np.sum([np.power(eu_norm, 2 * s) for eu_norm in euclidean_norms]), 1 - 1 / s)
-            weights[i] = 1 / k * np.array([np.power(eu_norm, 2 * (s - 1)) for eu_norm in euclidean_norms]) / denom
+        
+        dist_matr = distance_matrix(self.mu, data, p=2)
+
+        denom = 1 / k * np.power(np.sum(np.power(dist_matr, 2 * s), axis=0), 1 - 1 / s)
+
+        weights = np.divide(1 / k * np.power(dist_matr, 2 * (s - 1)), denom).T
         return weights
     
     def calculate_centers(self, data, weights):
@@ -28,7 +33,9 @@ class PowerKM:
     def calculate_obj(self, data, mu=None):
         if mu is None:
             mu = self.mu
-        return np.array([[np.linalg.norm(data[i] - mu[j]) ** 2 for i in range(data.shape[0])] for j in range(self.n_comp)]).min(axis=0).sum()
+        
+        dist_matr = distance_matrix(mu, data, p=2)
+        return dist_matr.min(axis=0).sum()
         
     def fit(self, data):
         s = self.s_0
@@ -53,9 +60,6 @@ class PowerKM:
         # print(f'After KM {self.calculate_obj(data)}')
 
 
-import pandas as pd
-from scipy.spatial import distance_matrix
-
 def kmeanspp(data, n_comp):
     rand_idx = np.random.randint(0, len(data))
     centroids = np.zeros([n_comp, data.shape[1]])
@@ -70,10 +74,12 @@ def kmeanspp(data, n_comp):
 
     return centroids
 
-        
 if __name__ == '__main__':
     from sklearn.cluster import KMeans
     from utils import load_cloud_dataset, load_texture_dataset, inertia
+    from time import time
+
+    np.random.seed(0)
     data = load_texture_dataset()
     N = 2
     n_comp = 11
@@ -86,8 +92,10 @@ if __name__ == '__main__':
             init_km.fit(data)
             print(f'KM: {init_km.score(data)}')
             init_centers = init_km.cluster_centers_
+            start = time()
             pkm = PowerKM(init_centers, s_0=-1)
             pkm.fit(data)
+            print(f'PKM fitting time: {time() - start}')
             centroids = pkm.mu
             print(f'PKM: {inertia(centroids, data)}')
             if inertia(centroids, data) < best_inertia:
@@ -97,14 +105,3 @@ if __name__ == '__main__':
         results.append(best_inertia)
     
     print(f'Res: {np.mean(results)} +- {np.std(results)}')
-
-    print(init_km.inertia_)
-    pkm = PowerKM(init_centers)
-    
-    print(f'Just KM: {inertia(init_centers, data)}')
-    print(f'Just KM: {pkm.calculate_obj(data, mu=init_centers)}')
-    pkm.fit(data)
-    pkm_centers = pkm.mu
-    # emply_km = KMeans(n_comp, init=pkm_centers, max_iter=0)
-    # emply_km.fit(data)
-    # print(emply_km.score(data))
